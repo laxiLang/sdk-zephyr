@@ -56,7 +56,7 @@ static void reset_test_iface_state(struct net_if *iface)
 	struct test_conn_data   *iface_data    = conn_mgr_if_get_data(iface);
 
 	/* Some tests mark ifaces as ignored, this must be reset between each test. */
-	conn_mgr_unignore_iface(iface);
+	conn_mgr_watch_iface(iface);
 
 	if (iface_binding) {
 		/* Reset all flags and settings for the binding */

@@ -109,6 +109,10 @@ BT_CONN_CB_DEFINE(mcumgr_bt_callbacks) = {
 	.disconnected = disconnected,
 };
 
+#ifdef CONFIG_SMP_CLIENT
+static struct smp_client_transport_entry smp_client_transport;
+#endif
+
 /* Helper function that allocates conn_param_data for a conn. */
 static struct conn_param_data *conn_param_data_alloc(struct bt_conn *conn)
 {
@@ -653,11 +657,25 @@ static void smp_bt_setup(void)
 		++i;
 	}
 
-	smp_transport_init(&smp_bt_transport, smp_bt_tx_pkt,
-			   smp_bt_get_mtu, smp_bt_ud_copy,
-			   smp_bt_ud_free, smp_bt_query_valid_check);
+	smp_bt_transport.functions.output = smp_bt_tx_pkt;
+	smp_bt_transport.functions.get_mtu = smp_bt_get_mtu;
+	smp_bt_transport.functions.ud_copy = smp_bt_ud_copy;
+	smp_bt_transport.functions.ud_free = smp_bt_ud_free;
+	smp_bt_transport.functions.query_valid_check = smp_bt_query_valid_check;
 
-	rc = smp_bt_register();
+	rc = smp_transport_init(&smp_bt_transport);
+
+	if (rc == 0) {
+		rc = smp_bt_register();
+	}
+
+#ifdef CONFIG_SMP_CLIENT
+	if (rc == 0) {
+		smp_client_transport.smpt = &smp_bt_transport;
+		smp_client_transport.smpt_type = SMP_BLUETOOTH_TRANSPORT;
+		rc = smp_client_transport_register(&smp_client_transport);
+	}
+#endif
 
 	if (rc != 0) {
 		LOG_ERR("Bluetooth SMP transport register failed (err %d)", rc);

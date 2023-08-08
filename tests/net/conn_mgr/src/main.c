@@ -57,7 +57,7 @@ static void reset_test_iface(struct net_if *iface)
 		net_if_ipv6_addr_rm(iface, ll_ipv6);
 	}
 
-	conn_mgr_unignore_iface(iface);
+	conn_mgr_watch_iface(iface);
 }
 
 /* Thread-safe test statistics */
@@ -728,14 +728,14 @@ ZTEST(conn_mgr, test_ignore_while_ready)
 	zassert_equal(stats.event_count, 0,
 		"No events should be fired if connecting iface is ignored.");
 
-	/* Un-ignore iface */
-	conn_mgr_unignore_iface(if_simp_a);
+	/* Watch iface */
+	conn_mgr_watch_iface(if_simp_a);
 
 	/* Ensure connectivity gained */
 	k_sleep(EVENT_WAIT_TIME);
 	stats = get_reset_stats();
 	zassert_equal(stats.conn_count, 1,
-		"NET_EVENT_L4_CONNECTED should be fired when online iface is unignored.");
+		"NET_EVENT_L4_CONNECTED should be fired when online iface is watched.");
 	zassert_equal(stats.event_count, 1,
 		"Only NET_EVENT_L4_CONNECTED should be fired.");
 	zassert_equal(stats.conn_iface, if_simp_a, "if_simp_a should be blamed.");
@@ -779,17 +779,17 @@ ZTEST(conn_mgr, test_ignores)
 	zassert_true(conn_mgr_is_iface_ignored(if_simp_a),
 			"if_simp_a should not be affected.");
 
-	/* Unignore if_simp_a, ensuring if_simp_b is unaffected */
-	conn_mgr_unignore_iface(if_simp_a);
+	/* Watch if_simp_a, ensuring if_simp_b is unaffected */
+	conn_mgr_watch_iface(if_simp_a);
 	zassert_false(conn_mgr_is_iface_ignored(if_simp_a),
-			"if_simp_a should be unignored.");
+			"if_simp_a should be watched.");
 	zassert_true(conn_mgr_is_iface_ignored(if_simp_b),
 			"if_simp_b should not be affected.");
 
-	/* Unignore if_simp_b, ensuring if_simp_a is unaffected */
-	conn_mgr_unignore_iface(if_simp_b);
+	/* Watch if_simp_b, ensuring if_simp_a is unaffected */
+	conn_mgr_watch_iface(if_simp_b);
 	zassert_false(conn_mgr_is_iface_ignored(if_simp_b),
-			"if_simp_b should be unignored.");
+			"if_simp_b should be watched.");
 	zassert_false(conn_mgr_is_iface_ignored(if_simp_a),
 			"if_simp_a should not be affected.");
 
@@ -806,16 +806,16 @@ ZTEST(conn_mgr, test_ignores)
 	zassert_false(conn_mgr_is_iface_ignored(if_dummy_eth),
 		"if_dummy_eth should not be affected.");
 
-	/* Unignore the entire DUMMY_L2, ensuring all ifaces except if_dummy_eth are affected */
-	conn_mgr_unignore_l2(&NET_L2_GET_NAME(DUMMY));
+	/* Watch the entire DUMMY_L2, ensuring all ifaces except if_dummy_eth are affected */
+	conn_mgr_watch_l2(&NET_L2_GET_NAME(DUMMY));
 	zassert_false(conn_mgr_is_iface_ignored(if_simp_a),
-		"All DUMMY_L2 ifaces should be unignored.");
+		"All DUMMY_L2 ifaces should be watched.");
 	zassert_false(conn_mgr_is_iface_ignored(if_simp_b),
-		"All DUMMY_L2 ifaces should be unignored.");
+		"All DUMMY_L2 ifaces should be watched.");
 	zassert_false(conn_mgr_is_iface_ignored(if_conn_a),
-		"All DUMMY_L2 ifaces should be unignored.");
+		"All DUMMY_L2 ifaces should be watched.");
 	zassert_false(conn_mgr_is_iface_ignored(if_conn_b),
-		"All DUMMY_L2 ifaces should be unignored.");
+		"All DUMMY_L2 ifaces should be watched.");
 	zassert_false(conn_mgr_is_iface_ignored(if_dummy_eth),
 		"if_dummy_eth should not be affected.");
 }

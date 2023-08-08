@@ -15,6 +15,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/net/net_if.h>
+#include <zephyr/sys/iterable_sections.h>
 #include <zephyr/net/net_mgmt.h>
 
 #ifdef __cplusplus
@@ -276,8 +277,6 @@ struct conn_mgr_conn_binding {
  * Automatically takes the iface admin-up (by calling net_if_up) if it isn't already.
  *
  * Non-Blocking.
- *
- * TODO: Talk about persistence and timeouts in this PR for docs.
  *
  * @param iface Pointer to network interface
  * @retval 0 on success.

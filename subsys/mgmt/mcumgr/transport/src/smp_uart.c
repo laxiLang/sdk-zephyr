@@ -31,6 +31,9 @@ K_WORK_DEFINE(smp_uart_work, smp_uart_process_rx_queue);
 
 static struct mcumgr_serial_rx_ctxt smp_uart_rx_ctxt;
 static struct smp_transport smp_uart_transport;
+#ifdef CONFIG_SMP_CLIENT
+static struct smp_client_transport_entry smp_client_transport;
+#endif
 
 /**
  * Processes a single line (fragment) coming from the mcumgr UART driver.
@@ -92,12 +95,23 @@ static int smp_uart_tx_pkt(struct net_buf *nb)
 
 static int smp_uart_init(void)
 {
+	int rc;
 
-	smp_transport_init(&smp_uart_transport, smp_uart_tx_pkt,
-			   smp_uart_get_mtu, NULL, NULL, NULL);
-	uart_mcumgr_register(smp_uart_rx_frag);
+	smp_uart_transport.functions.output = smp_uart_tx_pkt;
+	smp_uart_transport.functions.get_mtu = smp_uart_get_mtu;
 
-	return 0;
+	rc = smp_transport_init(&smp_uart_transport);
+
+	if (rc == 0) {
+		uart_mcumgr_register(smp_uart_rx_frag);
+#ifdef CONFIG_SMP_CLIENT
+		smp_client_transport.smpt = &smp_uart_transport;
+		smp_client_transport.smpt_type = SMP_SERIAL_TRANSPORT;
+		smp_client_transport_register(&smp_client_transport);
+#endif
+	}
+
+	return rc;
 }
 
 SYS_INIT(smp_uart_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);

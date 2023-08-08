@@ -8,23 +8,28 @@ menu "PSA RNG support"
 config PSA_WANT_GENERATE_RANDOM
 	bool
 	prompt "PSA RNG support"
-	default y
+	help
+	  Provide random number generator (RNG) support.
 
 config PSA_WANT_ALG_CTR_DRBG
 	bool
-	prompt "PSA RNG using CTR_DRBG"
+	prompt "PSA RNG using CTR-DRBG as PRNG"
 	help
-	  Provide CTR_DRBG as the random number generator.
-	  Note: This configuration is currently not described and has no effect.
+	  Provide random number generator (RNG) using CTR-DRBG as the
+	  pseudo-random number generator (PRNG), seeded by a true random
+	  number generator (TRNG).
 
 config PSA_WANT_ALG_HMAC_DRBG
 	bool
-	prompt "PSA RNG using HMAC_DRBG"
+	prompt "PSA RNG using HMAC-DRBG as PRNG"
 	help
-	  Provide HMAC_DRBG as the random number generator.
-	  Note: This configuration is currently not described and has no effect.
+	  Provide random number generator (RNG) using HMAC-DRBG as the
+	  pseudo-random number generator (PRNG), seeded by a true random
+	  number generator (TRNG).
 
 endmenu # RNG support
+
+menu "PSA key type support"
 
 config PSA_HAS_KEY_SUPPORT
 	bool
@@ -36,63 +41,74 @@ config PSA_HAS_KEY_SUPPORT
 		   PSA_WANT_KEY_TYPE_ECC_KEY_PAIR	|| \
 		   PSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY	|| \
 		   PSA_WANT_KEY_TYPE_RSA_KEY_PAIR	|| \
-		   PSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY
+		   PSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY     || \
+		   PSA_WANT_KEY_TYPE_DH_KEY_PAIR        || \
+		   PSA_WANT_KEY_TYPE_DH_KEY_PAIR
 
 config PSA_WANT_KEY_TYPE_DERIVE
-	bool
-	default y
-	depends on PSA_HAS_KEY_DERIVATION
+	bool "PSA derive key type support"
 	help
-	  Prompt-less configuration that states that the derived key type is used.
+	  This key type is for high-entropy secrets only.
+	  For low-entropy secrets, password key type should be used instead.
+
+config PSA_WANT_KEY_TYPE_RAW_DATA
+	bool "PSA raw data key type support"
+	help
+	  A "key" of this type cannot be used for any cryptographic operation.
+	  Applications can use this type to store arbitrary data in the keystore.
 
 config PSA_WANT_KEY_TYPE_HMAC
-	bool
-	default y
-	depends on PSA_HAS_MAC_SUPPORT
+	bool "PSA HMAC key type support"
 	help
-	  Prompt-less configuration that states that the HMAC key type is used.
+	  HMAC key.
 
 config PSA_WANT_KEY_TYPE_AES
-	bool
-	default y
-	depends on PSA_HAS_CIPHER_SUPPORT || PSA_HAS_AEAD_SUPPORT
+	bool "PSA AES key type support"
 	help
-	  Prompt-less configuration that states that AES key type is used.
+	  Key for cipher, AEAD or MAC algorithm based on the AES block cipher.
 
 config PSA_WANT_KEY_TYPE_CHACHA20
-	bool
+	bool "PSA ChaCha20 key type support"
 	default y
-	depends on PSA_WANT_ALG_CHACHA20_POLY1305
+	depends on PSA_WANT_ALG_CHACHA20_POLY1305 || \
+		   PSA_WANT_ALG_STREAM_CIPHER
 	help
-	  Prompt-less configuration that states that CHACHA20 key type is used.
+	  Key for the ChaCha20 stream cipher or the ChaCha20-Poly1305 AEAD algorithm.
 
 config PSA_WANT_KEY_TYPE_ECC_KEY_PAIR
-	bool
-	default y
-	depends on PSA_HAS_ECC_SUPPORT
+	bool "PSA ECC key pair support"
+	select PSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY
 	help
-	  Prompt-less configuration that states that ECC key pair type is used.
+	  Elliptic curve key pair: both the private and public key.
 
 config PSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY
-	bool
-	default y
-	depends on PSA_HAS_ECC_SUPPORT
+	bool "PSA ECC public key support"
 	help
-	  Prompt-less configuration that states that ECC public key type is used.
+	  Elliptic curve public key.
 
 config PSA_WANT_KEY_TYPE_RSA_KEY_PAIR
-	bool
-	default y
-	depends on PSA_HAS_RSA_SUPPORT
+	bool "PSA RSA key pair type support"
+	select PSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY
 	help
-	  Prompt-less configuration that states that RSA key pair type is used.
+	  RSA key pair: both the private and public key.
 
 config PSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY
-	bool
-	default y
-	depends on PSA_HAS_RSA_SUPPORT
+	bool "PSA RSA public key support"
 	help
-	  Prompt-less configuration that states that RSA public key type is used.
+	  RSA public key.
+
+config PSA_WANT_KEY_TYPE_DH_KEY_PAIR
+	bool "PSA DH key pair type support"
+	select PSA_WANT_KEY_TYPE_DH_PUBLIC_KEY
+	help
+	  Finite-field Diffie-Hellman key pair: both the private key and public key.
+
+config PSA_WANT_KEY_TYPE_DH_PUBLIC_KEY
+	bool "PSA DH public key support"
+	help
+	  Finite-field Diffie-Hellman public key.
+
+endmenu # PSA Key type support
 
 menu "PSA AEAD support"
 
@@ -107,18 +123,15 @@ config PSA_HAS_AEAD_SUPPORT
 
 config PSA_WANT_ALG_CCM
 	bool
-	prompt "PSA AES CCM support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA CCM support" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_GCM
 	bool
-	prompt "PSA AES GCM support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA GCM support" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_CHACHA20_POLY1305
 	bool
-	prompt "PSA ChaCha20/Poly1305 support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA ChaCha20-Poly1305 support" if !PSA_PROMPTLESS
 
 endmenu # PSA AEAD support
 
@@ -141,13 +154,11 @@ config PSA_WANT_ALG_CBC_MAC
 
 config PSA_WANT_ALG_CMAC
 	bool
-	prompt "PSA AES CMAC support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA CMAC support" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_HMAC
 	bool
 	prompt "PSA HMAC support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
 
 endmenu # PSA MAC support
 
@@ -169,36 +180,37 @@ config PSA_HAS_HASH_SUPPORT
 
 config PSA_WANT_ALG_SHA_1
 	bool
-	prompt "PSA SHA1 support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA SHA-1 support (weak)" if !PSA_PROMPTLESS
+	help
+	  Warning: The SHA-1 hash is weak and deprecated and is only recommended
+	  for use in legacy protocols.
 
 config PSA_WANT_ALG_SHA_224
 	bool
 	prompt "PSA SHA-224 support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
 
 config PSA_WANT_ALG_SHA_256
 	bool
-	prompt "PSA SSH-256 support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA SHA-256 support" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_SHA_384
 	bool
 	prompt "PSA SHA-384 support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
 
 config PSA_WANT_ALG_SHA_512
 	bool
 	prompt "PSA SHA-512 support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
 
 config PSA_WANT_ALG_RIPEMD160
 	bool
-	prompt "PSA RIPEMD160 support" if !PSA_PROMPTLESS
+	prompt "PSA RIPEMD-160 support" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_MD5
 	bool
-	prompt "PSA MD5 support" if !PSA_PROMPTLESS
+	prompt "PSA MD5 support (weak)" if !PSA_PROMPTLESS
+	help
+	  Warning: The MD5 hash is weak and deprecated and is only recommended
+	  for use in legacy protocols.
 
 endmenu # PSA Hash support
 
@@ -214,42 +226,42 @@ config PSA_HAS_CIPHER_SUPPORT
 		   PSA_WANT_ALG_CTR		|| \
 		   PSA_WANT_ALG_OFB		|| \
 		   PSA_WANT_ALG_CTR		|| \
-		   PSA_WANT_ALG_XTS
+		   PSA_WANT_ALG_XTS             || \
+		   PSA_WANT_ALG_STREAM_CIPHER
 	help
 	  Prompt-less configuration that states that cipher is supported.
 
 config PSA_WANT_ALG_ECB_NO_PADDING
 	bool
-	prompt "PSA AES ECB (no padding)" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA ECB block cipher mode support (with no padding)" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_CBC_NO_PADDING
 	bool
-	prompt "PSA CBC support (without padding)" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA CBC block cipher mode support (with no padding)" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_CBC_PKCS7
 	bool
-	prompt "PSA CBC support (padded with PKCS#7)" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA CBC block cipher mode support (with PKCS#7 padding)" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_CFB
 	bool
-	prompt "PSA AES CFB support" if !PSA_PROMPTLESS
+	prompt "PSA stream cipher using CFB block cipher mode support" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_CTR
 	bool
-	prompt "PSA AES CTR mode support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA stream cipher using CTR block cipher mode support" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_OFB
 	bool
-	prompt "PSA AES OFB mode support" if !PSA_PROMPTLESS
+	prompt "PSA stream cipher using OFB block cipher mode support" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_XTS
 	bool
-	help
-	  AES XTS is currently not supported
+	prompt "PSA XTS block cipher mode support" if !PSA_PROMPTLESS
+
+config PSA_WANT_ALG_STREAM_CIPHER
+	bool
+	prompt "PSA stream cipher support" if !PSA_PROMPTLESS
 
 endmenu # PSA Cipher Support
 
@@ -261,22 +273,27 @@ config PSA_HAS_KEY_DERIVATION
 	default y
 	depends on PSA_WANT_ALG_HKDF 		|| \
 		   PSA_WANT_ALG_PBKDF2_HMAC	|| \
+		   PSA_WANT_ALG_PBKDF2_AES_CMAC_PRF_128 || \
 		   PSA_WANT_ALG_TLS12_PRF	|| \
-		   PSA_WANT_ALG_TLS12_PSK_TO_MS
+		   PSA_WANT_ALG_TLS12_PSK_TO_MS || \
+		   PSA_WANT_ALG_TLS12_ECJPAKE_TO_PMS
 	help
 	  Prompt-less configuration that states that key derivation is supported.
 
 config PSA_WANT_ALG_HKDF
 	bool
-	prompt "PSA HKFD support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA HKDF support" if !PSA_PROMPTLESS
 	depends on PSA_WANT_ALG_HMAC
 
 config PSA_WANT_ALG_PBKDF2_HMAC
 	bool
+	prompt "PSA PBKDF2 HMAC support" if !PSA_PROMPTLESS
 	depends on PSA_WANT_ALG_HMAC
-	help
-	  PBKDF2-HMAC is not yet supported via the PSA APIs in Mbed TLS.
+
+config PSA_WANT_ALG_PBKDF2_AES_CMAC_PRF_128
+	bool
+	prompt "PSA PBKDF2-AES-CMAC-PRF-128 support" if !PSA_PROMPTLESS
+	depends on PSA_WANT_ALG_CMAC
 
 config PSA_WANT_ALG_TLS12_PRF
 	bool
@@ -285,6 +302,10 @@ config PSA_WANT_ALG_TLS12_PRF
 config PSA_WANT_ALG_TLS12_PSK_TO_MS
 	bool
 	prompt "PSA TLS 1.2 PSK to MS support" if !PSA_PROMPTLESS
+
+config PSA_WANT_ALG_TLS12_ECJPAKE_TO_PMS
+	bool
+	prompt "PSA TLS 1.2 EC J-PAKE to PMS support" if !PSA_PROMPTLESS
 
 endmenu # PSA Key derivation support
 
@@ -295,7 +316,7 @@ config PSA_HAS_ASYM_ENCRYPT_SUPPORT
 	bool
 	default y
 	depends on PSA_WANT_ALG_RSA_OAEP || \
-			   PSA_WANT_ALG_RSA_PKCS1V15_CRYPT
+		   PSA_WANT_ALG_RSA_PKCS1V15_CRYPT
 	help
 	  Prompt-less configuration that states that asymmetric encryption
 	  is supported.
@@ -308,14 +329,17 @@ config PSA_HAS_ASYM_SIGN_SUPPORT
 		   PSA_WANT_ALG_ECDSA 			|| \
 		   PSA_WANT_ALG_RSA_PKCS1V15_SIGN	|| \
 		   PSA_WANT_ALG_RSA_PSS
-
 	help
 	  Prompt-less configuration that states that asymmetric signing
 	  is supported.
 
 config PSA_HAS_ECC_SUPPORT
 	bool
-	depends on PSA_WANT_ALG_ECDH || PSA_WANT_ALG_ECDSA || PSA_WANT_ALG_DETERMINISTIC_ECDSA
+	depends on PSA_WANT_ALG_ECDH                    || \
+		   PSA_WANT_ALG_ECDSA                   || \
+		   PSA_WANT_ALG_DETERMINISTIC_ECDSA     || \
+		   PSA_WANT_KEY_TYPE_ECC_KEY_PAIR       || \
+		   PSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY
 	default y
 	help
 	  Prompt-less configuration that states that ECC is supported.
@@ -323,17 +347,14 @@ config PSA_HAS_ECC_SUPPORT
 config PSA_WANT_ALG_ECDH
 	bool
 	prompt "PSA ECDH support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
 
 config PSA_WANT_ALG_ECDSA
 	bool
 	prompt "PSA ECDSA support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
 
 config PSA_WANT_ALG_DETERMINISTIC_ECDSA
 	bool
 	prompt "PSA ECDSA support (deterministic mode)" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
 
 menu "Elliptic Curve type support"
 	depends on PSA_HAS_ECC_SUPPORT
@@ -349,13 +370,13 @@ config PSA_WANT_ECC_BRAINPOOL_P_R1_512
 	bool "PSA ECC Brainpool512r1 support"
 
 config PSA_WANT_ECC_MONTGOMERY_255
-	bool "PSA ECC Curve X25519 support"
+	bool "PSA ECC Curve25519 (X25519) support"
 
 config PSA_WANT_ECC_MONTGOMERY_448
-	bool "PSA ECC Curve X448 support"
+	bool "PSA ECC Curve448 (X448) support"
 
 config PSA_WANT_ECC_TWISTED_EDWARDS_255
-	bool "PSA ECC Curve Ed25519 support"
+	bool "PSA ECC Edwards25519 (Ed25519) support"
 
 config PSA_WANT_ECC_SECP_K1_192
 	bool "PSA ECC secp192k1 support"
@@ -381,7 +402,6 @@ config PSA_WANT_ECC_SECP_R1_224
 config PSA_WANT_ECC_SECP_R1_256
 	bool
 	prompt "PSA ECC secp256r1" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
 
 config PSA_WANT_ECC_SECP_R1_384
 	bool
@@ -398,7 +418,9 @@ config PSA_HAS_RSA_SUPPORT
 	depends on PSA_WANT_ALG_RSA_OAEP 		|| \
 		   PSA_WANT_ALG_RSA_PKCS1V15_CRYPT 	|| \
 		   PSA_WANT_ALG_RSA_PKCS1V15_SIGN 	|| \
-		   PSA_WANT_ALG_RSA_PSS
+		   PSA_WANT_ALG_RSA_PSS                 || \
+		   PSA_WANT_KEY_TYPE_RSA_KEY_PAIR       || \
+		   PSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY
 	default y
 	help
 	  Prompt-less configuration that states that RSA is supported.
@@ -409,11 +431,11 @@ config PSA_WANT_ALG_RSA_OAEP
 
 config PSA_WANT_ALG_RSA_PKCS1V15_CRYPT
 	bool
-	prompt "PSA RSA crypt support (PKCS1V15 mode)" if !PSA_PROMPTLESS
+	prompt "PSA RSA crypt support (PKCS#1 v1.5 mode)" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_RSA_PKCS1V15_SIGN
 	bool
-	prompt "PSA RSA signature support (PKCS1V15 mode)" if !PSA_PROMPTLESS
+	prompt "PSA RSA signature support (PKCS#1 v1.5 mode)" if !PSA_PROMPTLESS
 
 config PSA_WANT_ALG_RSA_PSS
 	bool
@@ -421,7 +443,18 @@ config PSA_WANT_ALG_RSA_PSS
 
 endmenu # PSA Asymmetric support
 
-config PSA_WANT_ALG_STREAM_CIPHER
+config PSA_WANT_ALG_JPAKE
 	bool
-	prompt "PSA stream cipher support" if !PSA_PROMPTLESS
-	default y if !PSA_DEFAULT_OFF
+	prompt "PSA EC J-PAKE support" if !PSA_PROMPTLESS
+	select EXPERIMENTAL
+
+config PSA_WANT_ALG_SPAKE2P
+	bool
+	prompt "PSA SPAKE2+ support" if !PSA_PROMPTLESS
+	select EXPERIMENTAL
+
+config PSA_WANT_ALG_SRP
+	bool
+	prompt "PSA SRP support" if !PSA_PROMPTLESS
+	default n
+	select EXPERIMENTAL

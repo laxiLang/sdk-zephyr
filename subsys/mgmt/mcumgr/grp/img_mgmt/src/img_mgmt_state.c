@@ -23,7 +23,6 @@
 
 #include <mgmt/mcumgr/util/zcbor_bulk.h>
 #include <mgmt/mcumgr/grp/img_mgmt/img_mgmt_priv.h>
-#include <mgmt/mcumgr/grp/img_mgmt/img_mgmt_impl.h>
 
 #ifdef CONFIG_MCUMGR_MGMT_NOTIFICATION_HOOKS
 #include <zephyr/mgmt/mcumgr/mgmt/callbacks.h>
@@ -127,7 +126,7 @@ img_mgmt_state_flags(int query_slot)
 		int rca = img_mgmt_read_info(active_slot, &aver, NULL, NULL);
 
 		if (rcs == 0 && rca == 0 && img_mgmt_vercmp(&aver, &sver) < 0) {
-			flags = IMG_MGMT_STATE_F_PENDING;
+			flags = IMG_MGMT_STATE_F_PENDING | IMG_MGMT_STATE_F_PERMANENT;
 		}
 	}
 
@@ -176,9 +175,7 @@ img_mgmt_slot_in_use(int slot)
 int
 img_mgmt_state_set_pending(int slot, int permanent)
 {
-	uint8_t hash[IMAGE_HASH_LEN];
 	uint8_t state_flags;
-	const uint8_t *hashp;
 	int rc;
 
 	state_flags = img_mgmt_state_flags(slot);
@@ -187,22 +184,13 @@ img_mgmt_state_set_pending(int slot, int permanent)
 	 * run if it is a loader in a split image setup.
 	 */
 	if (state_flags & IMG_MGMT_STATE_F_CONFIRMED && slot != 0) {
-		rc = MGMT_ERR_EBADSTATE;
+		rc = IMG_MGMT_RET_RC_IMAGE_ALREADY_PENDING;
 		goto done;
 	}
 
 	rc = img_mgmt_write_pending(slot, permanent);
-	if (rc != 0) {
-		rc = MGMT_ERR_EUNKNOWN;
-	}
 
 done:
-	/* Log the image hash if we know it. */
-	if (img_mgmt_read_info(slot, NULL, hash, NULL)) {
-		hashp = NULL;
-	} else {
-		hashp = hash;
-	}
 
 	return rc;
 }
@@ -216,23 +204,26 @@ img_mgmt_state_confirm(void)
 {
 	int rc;
 
+#if defined(CONFIG_MCUMGR_GRP_IMG_STATUS_HOOKS)
+	int32_t ret_rc;
+	uint16_t ret_group;
+#endif
+
 	/* Confirm disallowed if a test is pending. */
 	if (img_mgmt_state_any_pending()) {
-		rc = MGMT_ERR_EBADSTATE;
+		rc = IMG_MGMT_RET_RC_IMAGE_ALREADY_PENDING;
 		goto err;
 	}
 
 	rc = img_mgmt_write_confirmed();
-	if (rc != 0) {
-		rc = MGMT_ERR_EUNKNOWN;
-	}
 
 #if defined(CONFIG_MCUMGR_GRP_IMG_STATUS_HOOKS)
-	(void)mgmt_callback_notify(MGMT_EVT_OP_IMG_MGMT_DFU_CONFIRMED, NULL, 0);
+	(void)mgmt_callback_notify(MGMT_EVT_OP_IMG_MGMT_DFU_CONFIRMED, NULL, 0, &ret_rc,
+				   &ret_group);
 #endif
 
 err:
-	return 0;
+	return rc;
 }
 
 /**
@@ -246,13 +237,15 @@ img_mgmt_state_read(struct smp_streamer *ctxt)
 	struct image_version ver;
 	uint32_t flags;
 	uint8_t state_flags;
-	int i;
+	uint32_t i;
 	zcbor_state_t *zse = ctxt->writer->zs;
 	bool ok;
 	struct zcbor_string zhash = { .value = hash, .len = IMAGE_HASH_LEN };
 
 	ok = zcbor_tstr_put_lit(zse, "images") &&
 	     zcbor_list_start_encode(zse, 2 * CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER);
+
+	img_mgmt_take_lock();
 
 	for (i = 0; ok && i < 2 * CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER; i++) {
 		int rc = img_mgmt_read_info(i, &ver, hash, &flags);
@@ -265,9 +258,9 @@ img_mgmt_state_read(struct smp_streamer *ctxt)
 		ok = zcbor_map_start_encode(zse, MAX_IMG_CHARACTERISTICS)	&&
 		     (CONFIG_MCUMGR_GRP_IMG_UPDATABLE_IMAGE_NUMBER == 1	||
 		      (zcbor_tstr_put_lit(zse, "image")			&&
-		       zcbor_int32_put(zse, i >> 1)))				&&
+		       zcbor_uint32_put(zse, i >> 1)))				&&
 		     zcbor_tstr_put_lit(zse, "slot")				&&
-		     zcbor_int32_put(zse, i % 2)				&&
+		     zcbor_uint32_put(zse, i % 2)				&&
 		     zcbor_tstr_put_lit(zse, "version");
 
 		if (ok) {
@@ -279,7 +272,7 @@ img_mgmt_state_read(struct smp_streamer *ctxt)
 			}
 		}
 
-		ok = zcbor_tstr_put_term(zse, "hash")						&&
+		ok = ok && zcbor_tstr_put_term(zse, "hash")					&&
 		     zcbor_bstr_encode(zse, &zhash)						&&
 		     ZCBOR_ENCODE_FLAG(zse, "bootable", !(flags & IMAGE_F_NON_BOOTABLE))	&&
 		     ZCBOR_ENCODE_FLAG(zse, "pending",
@@ -300,15 +293,22 @@ img_mgmt_state_read(struct smp_streamer *ctxt)
 		     zcbor_int32_put(zse, 0);
 	}
 
+	img_mgmt_release_lock();
+
 	return ok ? MGMT_ERR_EOK : MGMT_ERR_EMSGSIZE;
 }
 
-int img_mgmt_set_boot_next(int slot, bool confirm)
+int img_mgmt_set_next_boot_slot(int slot, bool confirm)
 {
 	const struct flash_area *fa;
 	int area_id = img_mgmt_flash_area_id(slot);
 	int rc = 0;
 	bool active = (slot == img_mgmt_active_slot(img_mgmt_active_image()));
+
+#if defined(CONFIG_MCUMGR_GRP_IMG_STATUS_HOOKS)
+	int32_t ret_rc;
+	uint16_t ret_group;
+#endif
 
 	if (active) {
 		confirm = true;
@@ -321,11 +321,11 @@ int img_mgmt_set_boot_next(int slot, bool confirm)
 
 	/* Confirm disallowed if a test is pending. */
 	if (active && img_mgmt_state_any_pending()) {
-		return MGMT_ERR_EBADSTATE;
+		return IMG_MGMT_RET_RC_IMAGE_ALREADY_PENDING;
 	}
 
 	if (flash_area_open(area_id, &fa) != 0) {
-		return MGMT_ERR_EUNKNOWN;
+		return IMG_MGMT_RET_RC_FLASH_OPEN_FAILED;
 	}
 
 	rc = boot_set_next(fa, active, confirm);
@@ -336,14 +336,25 @@ int img_mgmt_set_boot_next(int slot, bool confirm)
 		} else {
 			LOG_ERR("Failed to write pending flag for slot %d: %d", slot, rc);
 		}
-		rc = MGMT_ERR_EUNKNOWN;
+
+		/* Translate from boot util error code to IMG mgmt group error code */
+		if (rc == BOOT_EFLASH) {
+			rc = IMG_MGMT_RET_RC_FLASH_WRITE_FAILED;
+		} else if (rc == BOOT_EBADVECT) {
+			rc = IMG_MGMT_RET_RC_INVALID_IMAGE_VECTOR_TABLE;
+		} else if (rc == BOOT_EBADIMAGE) {
+			rc = IMG_MGMT_RET_RC_INVALID_IMAGE_HEADER_MAGIC;
+		} else {
+			rc = IMG_MGMT_RET_RC_UNKNOWN;
+		}
 	}
 	flash_area_close(fa);
 
-#if CONFIG_MCUMGR_GRP_IMG_STATUS_HOOKS
+#if defined(CONFIG_MCUMGR_GRP_IMG_STATUS_HOOKS)
 	if (active) {
 		/* Confirm event is only sent for active slot */
-		(void)mgmt_callback_notify(MGMT_EVT_OP_IMG_MGMT_DFU_CONFIRMED, NULL, 0);
+		(void)mgmt_callback_notify(MGMT_EVT_OP_IMG_MGMT_DFU_CONFIRMED, NULL, 0, &ret_rc,
+					   &ret_group);
 	}
 #endif
 
@@ -368,6 +379,7 @@ img_mgmt_state_write(struct smp_streamer *ctxt)
 		ZCBOR_MAP_DECODE_KEY_DECODER("confirm", zcbor_bool_decode, &confirm)
 	};
 
+	zcbor_state_t *zse = ctxt->writer->zs;
 	zcbor_state_t *zsd = ctxt->reader->zs;
 
 	ok = zcbor_map_decode_bulk(zsd, image_list_decode,
@@ -377,19 +389,24 @@ img_mgmt_state_write(struct smp_streamer *ctxt)
 		return MGMT_ERR_EINVAL;
 	}
 
+	img_mgmt_take_lock();
+
 	/* Determine which slot is being operated on. */
 	if (zhash.len == 0) {
 		if (confirm) {
 			slot = img_mgmt_active_slot(img_mgmt_active_image());
 		} else {
 			/* A 'test' without a hash is invalid. */
-			return MGMT_ERR_EINVAL;
+			ok = smp_add_cmd_ret(zse, MGMT_GROUP_ID_IMAGE,
+					     IMG_MGMT_RET_RC_INVALID_HASH);
+			goto end;
 		}
 	} else if (zhash.len != IMAGE_HASH_LEN) {
 		/* The img_mgmt_find_by_hash does exact length compare
 		 * so just fail here.
 		 */
-		return MGMT_ERR_EINVAL;
+		ok = smp_add_cmd_ret(zse, MGMT_GROUP_ID_IMAGE, IMG_MGMT_RET_RC_INVALID_HASH);
+		goto end;
 	} else {
 		uint8_t hash[IMAGE_HASH_LEN];
 
@@ -397,20 +414,31 @@ img_mgmt_state_write(struct smp_streamer *ctxt)
 
 		slot = img_mgmt_find_by_hash(hash, NULL);
 		if (slot < 0) {
-			return MGMT_ERR_EINVAL;
+			ok = smp_add_cmd_ret(zse, MGMT_GROUP_ID_IMAGE,
+					     IMG_MGMT_RET_RC_HASH_NOT_FOUND);
+			goto end;
 		}
 	}
 
-	rc = img_mgmt_set_boot_next(slot, confirm);
+	rc = img_mgmt_set_next_boot_slot(slot, confirm);
 	if (rc != 0) {
-		return rc;
+		ok = smp_add_cmd_ret(zse, MGMT_GROUP_ID_IMAGE, rc);
+		goto end;
 	}
 
 	/* Send the current image state in the response. */
 	rc = img_mgmt_state_read(ctxt);
 	if (rc != 0) {
+		img_mgmt_release_lock();
 		return rc;
 	}
 
-	return 0;
+end:
+	img_mgmt_release_lock();
+
+	if (!ok) {
+		return MGMT_ERR_EMSGSIZE;
+	}
+
+	return MGMT_ERR_EOK;
 }

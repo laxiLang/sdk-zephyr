@@ -997,9 +997,7 @@ int bt_le_adv_start_legacy(struct bt_le_ext_adv *adv,
 	set_param.channel_map  = get_adv_channel_map(param->options);
 	set_param.filter_policy = get_filter_policy(param->options);
 
-	if (adv->id != param->id) {
-		atomic_clear_bit(bt_dev.flags, BT_DEV_RPA_VALID);
-	}
+	atomic_clear_bit(bt_dev.flags, BT_DEV_RPA_VALID);
 
 	adv->id = param->id;
 	bt_dev.adv_conn_id = adv->id;
@@ -1156,12 +1154,11 @@ static int le_ext_adv_param_set(struct bt_le_ext_adv *adv,
 	adv->options = param->options;
 
 	cp->prim_adv_phy = BT_HCI_LE_PHY_1M;
-	if (param->options & BT_LE_ADV_OPT_EXT_ADV) {
-		if (param->options & BT_LE_ADV_OPT_NO_2M) {
-			cp->sec_adv_phy = BT_HCI_LE_PHY_1M;
-		} else {
-			cp->sec_adv_phy = BT_HCI_LE_PHY_2M;
-		}
+	if ((param->options & BT_LE_ADV_OPT_EXT_ADV) &&
+	    !(param->options & BT_LE_ADV_OPT_NO_2M)) {
+		cp->sec_adv_phy = BT_HCI_LE_PHY_2M;
+	} else {
+		cp->sec_adv_phy = BT_HCI_LE_PHY_1M;
 	}
 
 	if (param->options & BT_LE_ADV_OPT_CODED) {
@@ -2205,8 +2202,7 @@ void bt_hci_le_adv_set_terminated(struct net_buf *buf)
 			    !atomic_test_bit(adv->flags, BT_ADV_USE_IDENTITY)) {
 				/* Set Responder address unless already set */
 				conn->le.resp_addr.type = BT_ADDR_LE_RANDOM;
-				if (bt_addr_cmp(&conn->le.resp_addr.a,
-						BT_ADDR_ANY) == 0) {
+				if (bt_addr_eq(&conn->le.resp_addr.a, BT_ADDR_ANY)) {
 					bt_addr_copy(&conn->le.resp_addr.a,
 						     &adv->random_addr.a);
 				}

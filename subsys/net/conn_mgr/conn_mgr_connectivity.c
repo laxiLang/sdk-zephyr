@@ -8,8 +8,11 @@
 LOG_MODULE_REGISTER(conn_mgr_conn, CONFIG_NET_CONNECTION_MANAGER_LOG_LEVEL);
 
 #include <zephyr/net/net_if.h>
-#include <zephyr/net/conn_mgr_connectivity.h>
+#include <zephyr/sys/iterable_sections.h>
 #include <zephyr/net/conn_mgr.h>
+
+#include <zephyr/net/conn_mgr_connectivity.h>
+
 #include "conn_mgr_private.h"
 
 int conn_mgr_if_connect(struct net_if *iface)
@@ -47,7 +50,7 @@ out:
 	return status;
 }
 
-static void conn_mgr_conn_handle_iface_hard_down(struct net_if *iface);
+static void conn_mgr_conn_if_auto_admin_down(struct net_if *iface);
 
 int conn_mgr_if_disconnect(struct net_if *iface)
 {
@@ -78,10 +81,15 @@ int conn_mgr_if_disconnect(struct net_if *iface)
 out:
 	k_mutex_unlock(binding->mutex);
 
-	/* Inform conn_mgr that this is a hard-down scenario, since it won't know from the
-	 * if_down event alone.
+	/* Since the connectivity implementation will not automatically attempt to reconnect after
+	 * a call to conn_mgr_if_disconnect, conn_mgr_conn_if_auto_admin_down should be called.
+	 *
+	 * conn_mgr_conn_handle_iface_down will only call conn_mgr_conn_if_auto_admin_down if
+	 * persistence is disabled. To ensure conn_mgr_conn_if_auto_admin_down is called in all
+	 * cases, we must call it directly from here. If persistence is disabled, this will result
+	 * in conn_mgr_conn_if_auto_admin_down being called twice, but that is not an issue.
 	 */
-	conn_mgr_conn_handle_iface_hard_down(iface);
+	conn_mgr_conn_if_auto_admin_down(iface);
 
 	return status;
 }
@@ -270,18 +278,18 @@ static void conn_mgr_conn_handle_iface_admin_up(struct net_if *iface)
 }
 
 /**
- * @brief Perform automated behaviors in response to any iface that loses
- * connection and does not expect to regain it (referred to, here, as hard-down).
+ * @brief Take the provided iface admin-down.
  *
- * This is how conn_mgr_conn automatically takes such ifaces admin-down.
+ * Called automatically by conn_mgr when an iface loses connection and does not expect to regain it,
+ * and AUTO_IF_DOWN is enabled for the iface.
  *
- * @param iface - The iface which experienced hard-down.
+ * @param iface - The iface to take admin-down
  */
-static void conn_mgr_conn_handle_iface_hard_down(struct net_if *iface)
+static void conn_mgr_conn_if_auto_admin_down(struct net_if *iface)
 {
 	/* NOTE: This will be double-fired for ifaces that are both non-persistent
 	 * and are being directly requested to disconnect, since both of these conditions
-	 * separately trigger conn_mgr_conn_handle_iface_hard_down.
+	 * separately trigger conn_mgr_conn_if_auto_admin_down.
 	 *
 	 * This is fine, because net_if_down is idempotent, but if you are adding other
 	 * behaviors to this function, bear it in mind.
@@ -313,13 +321,15 @@ static void conn_mgr_conn_handle_iface_down(struct net_if *iface)
 		return;
 	}
 
-	/* If the iface is persistent, do not treat any disconnect as hard-down */
+	/* If the iface is persistent, we expect it to try to reconnect, so nothing else to do */
 	if (conn_mgr_if_get_flag(iface, CONN_MGR_IF_PERSISTENT)) {
 		return;
 	}
 
-	/* Otherwise, treat as a hard-down */
-	conn_mgr_conn_handle_iface_hard_down(iface);
+	/* Otherwise, we do not expect the iface to reconnect, and we should call
+	 * conn_mgr_conn_if_auto_admin_down
+	 */
+	conn_mgr_conn_if_auto_admin_down(iface);
 }
 
 static struct net_mgmt_event_callback conn_mgr_conn_iface_cb;
@@ -330,11 +340,11 @@ static void conn_mgr_conn_iface_handler(struct net_mgmt_event_callback *cb, uint
 		return;
 	}
 
-	switch (NET_MGMT_GET_COMMAND(mgmt_event)) {
-	case NET_EVENT_IF_CMD_DOWN:
+	switch (mgmt_event) {
+	case NET_EVENT_IF_DOWN:
 		conn_mgr_conn_handle_iface_down(iface);
 		break;
-	case NET_EVENT_IF_CMD_ADMIN_UP:
+	case NET_EVENT_IF_ADMIN_UP:
 		conn_mgr_conn_handle_iface_admin_up(iface);
 		break;
 	}
@@ -361,7 +371,10 @@ static void conn_mgr_conn_self_handler(struct net_mgmt_event_callback *cb, uint3
 		}
 	__fallthrough;
 	case NET_EVENT_CONN_CMD_IF_TIMEOUT:
-		conn_mgr_conn_handle_iface_hard_down(iface);
+		/* If a timeout or fatal error occurs, we do not expect the iface to try to
+		 * reconnect, so call conn_mgr_conn_if_auto_admin_down.
+		 */
+		conn_mgr_conn_if_auto_admin_down(iface);
 		break;
 	}
 

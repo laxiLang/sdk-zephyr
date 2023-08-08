@@ -13,7 +13,7 @@ LOG_MODULE_REGISTER(conn_mgr, CONFIG_NET_CONNECTION_MANAGER_LOG_LEVEL);
 #include <zephyr/net/net_core.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_mgmt.h>
-
+#include <zephyr/sys/iterable_sections.h>
 #include <zephyr/net/conn_mgr_connectivity.h>
 #include "conn_mgr_private.h"
 
@@ -23,15 +23,23 @@ LOG_MODULE_REGISTER(conn_mgr, CONFIG_NET_CONNECTION_MANAGER_LOG_LEVEL);
 #define THREAD_PRIORITY K_PRIO_PREEMPT(7)
 #endif
 
-/* Tracks per-iface state and event flags */
+static K_THREAD_STACK_DEFINE(conn_mgr_thread_stack,
+			     CONFIG_NET_CONNECTION_MANAGER_STACK_SIZE);
+static struct k_thread conn_mgr_thread;
+
+/* Internal state array tracking readiness, flags, and other state information for all available
+ * ifaces. Note that indexing starts at 0, whereas Zephyr iface indices start at 1.
+ * conn_mgr_get_if_by_index and conn_mgr_get_index_for_if are used to go back and forth between
+ * iface_states indices and Zephyr iface pointers.
+ */
 uint16_t iface_states[CONN_MGR_IFACE_MAX];
 
 /* Tracks the total number of L4-ready ifaces */
 static uint16_t ready_count;
 
 /* Tracks the last ifaces to change state in each respective direction */
-static int last_iface_down;
-static int last_iface_up;
+static struct net_if *last_iface_down;
+static struct net_if *last_iface_up;
 
 /* Used to signal when modifications have been made that need to be responded to */
 K_SEM_DEFINE(conn_mgr_event_signal, 1, 1);
@@ -61,6 +69,12 @@ static int conn_mgr_get_index_for_if(struct net_if *iface)
 	return net_if_get_by_iface(iface) - 1;
 }
 
+/**
+ * @brief Marks an iface as ready or unready and updates all associated state tracking.
+ *
+ * @param idx - index (in iface_states) of the iface to mark ready or unready
+ * @param readiness - true if the iface should be considered ready, otherwise false
+ */
 static void conn_mgr_set_ready(int idx, bool readiness)
 {
 	/* Clear and then update the L4-readiness bit */
@@ -70,10 +84,10 @@ static void conn_mgr_set_ready(int idx, bool readiness)
 		iface_states[idx] |= CONN_MGR_IF_READY;
 
 		ready_count += 1;
-		last_iface_up = idx;
+		last_iface_up = conn_mgr_get_if_by_index(idx);
 	} else {
 		ready_count -= 1;
-		last_iface_down = idx;
+		last_iface_down = conn_mgr_get_if_by_index(idx);
 	}
 }
 
@@ -88,7 +102,6 @@ static void conn_mgr_act_on_changes(void)
 	bool is_oper_up;
 	bool was_l4_ready;
 	bool is_ignored;
-	struct net_if *last_iface;
 
 	k_mutex_lock(&conn_mgr_lock, K_FOREVER);
 
@@ -127,12 +140,10 @@ static void conn_mgr_act_on_changes(void)
 	if (ready_count != original_ready_count) {
 		if (ready_count == 0) {
 			/* We just lost connectivity */
-			last_iface = conn_mgr_get_if_by_index(last_iface_down);
-			net_mgmt_event_notify(NET_EVENT_L4_DISCONNECTED, last_iface);
+			net_mgmt_event_notify(NET_EVENT_L4_DISCONNECTED, last_iface_down);
 		} else if (original_ready_count == 0) {
 			/* We just gained connectivity */
-			last_iface = conn_mgr_get_if_by_index(last_iface_up);
-			net_mgmt_event_notify(NET_EVENT_L4_CONNECTED, last_iface);
+			net_mgmt_event_notify(NET_EVENT_L4_CONNECTED, last_iface_up);
 		}
 	}
 
@@ -205,22 +216,14 @@ static void conn_mgr_handler(void)
 	}
 }
 
-K_THREAD_DEFINE(conn_mgr, CONFIG_NET_CONNECTION_MANAGER_STACK_SIZE,
-		(k_thread_entry_t)conn_mgr_handler, NULL, NULL, NULL,
-		THREAD_PRIORITY, 0, 0);
-
 void conn_mgr_resend_status(void)
 {
-	struct net_if *last_iface;
-
 	k_mutex_lock(&conn_mgr_lock, K_FOREVER);
 
 	if (ready_count == 0) {
-		last_iface = conn_mgr_get_if_by_index(last_iface_down);
-		net_mgmt_event_notify(NET_EVENT_L4_DISCONNECTED, last_iface);
+		net_mgmt_event_notify(NET_EVENT_L4_DISCONNECTED, last_iface_down);
 	} else {
-		last_iface = conn_mgr_get_if_by_index(last_iface_up);
-		net_mgmt_event_notify(NET_EVENT_L4_CONNECTED, last_iface);
+		net_mgmt_event_notify(NET_EVENT_L4_CONNECTED, last_iface_up);
 	}
 
 	k_mutex_unlock(&conn_mgr_lock);
@@ -242,7 +245,7 @@ void conn_mgr_ignore_iface(struct net_if *iface)
 	k_mutex_unlock(&conn_mgr_lock);
 }
 
-void conn_mgr_unignore_iface(struct net_if *iface)
+void conn_mgr_watch_iface(struct net_if *iface)
 {
 	int idx = conn_mgr_get_index_for_if(iface);
 
@@ -303,16 +306,16 @@ void conn_mgr_ignore_l2(const struct net_l2 *l2)
 	k_mutex_unlock(&conn_mgr_lock);
 }
 
-void conn_mgr_unignore_l2(const struct net_l2 *l2)
+void conn_mgr_watch_l2(const struct net_l2 *l2)
 {
-	/* conn_mgr_unignore_iface already locks the mutex, but we lock it here too
+	/* conn_mgr_watch_iface already locks the mutex, but we lock it here too
 	 * so that all matching ifaces are updated simultaneously.
 	 */
 	k_mutex_lock(&conn_mgr_lock, K_FOREVER);
 
 	STRUCT_SECTION_FOREACH(net_if, iface) {
 		if (iface_uses_l2(iface, l2)) {
-			conn_mgr_unignore_iface(iface);
+			conn_mgr_watch_iface(iface);
 		}
 	}
 
@@ -323,12 +326,14 @@ static int conn_mgr_init(void)
 {
 	int i;
 
-
 	for (i = 0; i < ARRAY_SIZE(iface_states); i++) {
 		iface_states[i] = 0;
 	}
 
-	k_thread_start(conn_mgr);
+	k_thread_create(&conn_mgr_thread, conn_mgr_thread_stack,
+			CONFIG_NET_CONNECTION_MANAGER_STACK_SIZE,
+			(k_thread_entry_t)conn_mgr_handler,
+			NULL, NULL, NULL, THREAD_PRIORITY, 0, K_NO_WAIT);
 
 	return 0;
 }

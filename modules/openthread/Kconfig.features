@@ -51,6 +51,9 @@ config OPENTHREAD_BORDER_ROUTING
 config OPENTHREAD_BORDER_ROUTING_COUNTERS
 	bool "Border routing counters support"
 
+config OPENTHREAD_BORDER_ROUTING_DHCP6_PD
+	bool "DHCPv6-PD support in border routing"
+
 config OPENTHREAD_CHANNEL_MONITOR
 	bool "Channel monitor support"
 
@@ -112,7 +115,7 @@ config OPENTHREAD_DNS_CLIENT_OVER_TCP
 config OPENTHREAD_DNS_DSO
 	bool "DNS Stateful Operations (DSO) support"
 
-config OPENTHREAD_DNS_QUERY_UPSTREAM
+config OPENTHREAD_DNS_UPSTREAM_QUERY
 	bool "Forwarding DNS queries to upstream"
 	help
 	  Enable forwarding DNS queries to platform DNS upstream API
@@ -182,6 +185,7 @@ config OPENTHREAD_MESSAGE_USE_HEAP
 
 config OPENTHREAD_MLE_LONG_ROUTES
 	bool "MLE long routes extension (experimental)"
+	select EXPERIMENTAL
 	help
 	  Enable MLE long routes extension (experimental, breaks Thread conformance)
 
@@ -207,6 +211,10 @@ config OPENTHREAD_NEIGHBOR_DISCOVERY_AGENT
 
 config OPENTHREAD_NETDATA_PUBLISHER
 	bool "Thread Network Data publisher"
+
+config OPENTHREAD_OPERATIONAL_DATASET_AUTO_INIT
+	bool "Operational dataset auto init"
+	default y
 
 config OPENTHREAD_OTNS
 	bool "OTNS support"
@@ -245,6 +253,9 @@ config OPENTHREAD_POWER_SUPPLY
 	default "EXTERNAL_STABLE" if OPENTHREAD_POWER_SUPPLY_EXTERNAL_STABLE
 	default "EXTERNAL_UNSTABLE" if OPENTHREAD_POWER_SUPPLY_EXTERNAL_UNSTABLE
 	default ""
+
+config OPENTHREAD_RADIO_STATS
+	bool "Support for Radio Statistics"
 
 config OPENTHREAD_RAW
 	bool "Raw Link support"

@@ -1486,6 +1486,42 @@ function(zephyr_build_string outvar)
   set(${outvar} ${${outvar}} PARENT_SCOPE)
 endfunction()
 
+# Function to add header file(s) to the list to be passed to syscall generator.
+function(zephyr_syscall_header)
+  foreach(one_file ${ARGV})
+    if(EXISTS ${one_file})
+      set(header_file ${one_file})
+    elseif(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${one_file})
+      set(header_file ${CMAKE_CURRENT_SOURCE_DIR}/${one_file})
+    else()
+      message(FATAL_ERROR "Syscall header file not found: ${one_file}")
+    endif()
+
+    target_sources(
+      syscalls_interface INTERFACE
+      ${header_file}
+    )
+    target_include_directories(
+      syscalls_interface INTERFACE
+      ${header_file}
+    )
+    add_dependencies(
+      syscalls_interface
+      ${header_file}
+    )
+
+    unset(header_file)
+  endforeach()
+endfunction()
+
+# Function to add header file(s) to the list to be passed to syscall generator
+# if condition is true.
+function(zephyr_syscall_header_ifdef feature_toggle)
+  if(${${feature_toggle}})
+    zephyr_syscall_header(${ARGN})
+  endif()
+endfunction()
+
 ########################################################
 # 2. Kconfig-aware extensions
 ########################################################
@@ -4258,6 +4294,7 @@ endmacro()
 # ADDRESS <address>   : Specific address to use for this section.
 # ALIGN_WITH_INPUT    : The alignment difference between VMA and LMA is kept
 #                       intact for this section.
+# NUMERIC             : Use numeric sorting.
 # SUBALIGN <alignment>: Force input alignment with size <alignment>
 #  Note: Regarding all alignment attributes. Not all linkers may handle alignment
 #        in identical way. For example the Scatter file will align both load and
@@ -4265,7 +4302,7 @@ endmacro()
 #/
 function(zephyr_iterable_section)
   # ToDo - Should we use ROM, RAM, etc as arguments ?
-  set(options     "ALIGN_WITH_INPUT")
+  set(options     "ALIGN_WITH_INPUT;NUMERIC")
   set(single_args "GROUP;LMA;NAME;SUBALIGN;VMA")
   set(multi_args  "")
   set(align_input)
@@ -4287,6 +4324,12 @@ function(zephyr_iterable_section)
     set(align_input ALIGN_WITH_INPUT)
   endif()
 
+  if(SECTION_NUMERIC)
+    set(INPUT "._${SECTION_NAME}.static.*_?_*;._${SECTION_NAME}.static.*_??_*")
+  else()
+    set(INPUT "._${SECTION_NAME}.static.*")
+  endif()
+
   zephyr_linker_section(
     NAME ${SECTION_NAME}_area
     GROUP "${SECTION_GROUP}"
@@ -4295,7 +4338,7 @@ function(zephyr_iterable_section)
   )
   zephyr_linker_section_configure(
     SECTION ${SECTION_NAME}_area
-    INPUT "._${SECTION_NAME}.static.*"
+    INPUT "${INPUT}"
     SYMBOLS _${SECTION_NAME}_list_start _${SECTION_NAME}_list_end
     KEEP SORT NAME
   )
@@ -4337,13 +4380,13 @@ function(zephyr_linker_section_obj_level)
 
   zephyr_linker_section_configure(
     SECTION ${OBJ_SECTION}
-    INPUT ".z_${OBJ_SECTION}_${OBJ_LEVEL}?_"
+    INPUT ".z_${OBJ_SECTION}_${OBJ_LEVEL}?_*"
     SYMBOLS __${OBJ_SECTION}_${OBJ_LEVEL}_start
     KEEP SORT NAME
   )
   zephyr_linker_section_configure(
     SECTION ${OBJ_SECTION}
-    INPUT ".z_${OBJ_SECTION}_${OBJ_LEVEL}??_"
+    INPUT ".z_${OBJ_SECTION}_${OBJ_LEVEL}??_*"
     KEEP SORT NAME
   )
 endfunction()
@@ -4447,7 +4490,7 @@ endfunction()
 #     zephyr_linker_symbol(SYMBOL bar EXPR "(@foo@ + 1024)")
 #
 function(zephyr_linker_symbol)
-  set(single_args "EXPR;SYMBOL")
+  set(single_args "EXPR;SYMBOL;OBJECT")
   cmake_parse_arguments(SYMBOL "" "${single_args}" "" ${ARGN})
 
   if(SECTION_UNPARSED_ARGUMENTS)

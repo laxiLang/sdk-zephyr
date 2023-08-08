@@ -320,8 +320,10 @@ static inline void net_pkt_set_iface(struct net_pkt *pkt, struct net_if *iface)
 	 * that the address type is properly set and is not forgotten.
 	 */
 	if (iface) {
-		pkt->lladdr_src.type = net_if_get_link_addr(iface)->type;
-		pkt->lladdr_dst.type = net_if_get_link_addr(iface)->type;
+		uint8_t type = net_if_get_link_addr(iface)->type;
+
+		pkt->lladdr_src.type = type;
+		pkt->lladdr_dst.type = type;
 	}
 }
 
@@ -1272,6 +1274,37 @@ static inline bool net_pkt_filter_recv_ok(struct net_pkt *pkt)
 }
 
 #endif /* CONFIG_NET_PKT_FILTER */
+
+#if defined(CONFIG_NET_PKT_FILTER) && \
+	(defined(CONFIG_NET_PKT_FILTER_IPV4_HOOK) || defined(CONFIG_NET_PKT_FILTER_IPV6_HOOK))
+
+bool net_pkt_filter_ip_recv_ok(struct net_pkt *pkt);
+
+#else
+
+static inline bool net_pkt_filter_ip_recv_ok(struct net_pkt *pkt)
+{
+	ARG_UNUSED(pkt);
+
+	return true;
+}
+
+#endif /* CONFIG_NET_PKT_FILTER_IPV4_HOOK || CONFIG_NET_PKT_FILTER_IPV6_HOOK */
+
+#if defined(CONFIG_NET_PKT_FILTER) && defined(CONFIG_NET_PKT_FILTER_LOCAL_IN_HOOK)
+
+bool net_pkt_filter_local_in_recv_ok(struct net_pkt *pkt);
+
+#else
+
+static inline bool net_pkt_filter_local_in_recv_ok(struct net_pkt *pkt)
+{
+	ARG_UNUSED(pkt);
+
+	return true;
+}
+
+#endif /* CONFIG_NET_PKT_FILTER && CONFIG_NET_PKT_FILTER_LOCAL_IN_HOOK */
 
 /* @endcond */
 

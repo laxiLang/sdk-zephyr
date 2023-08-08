@@ -58,7 +58,7 @@ The build system looks for snippets in these places:
 
 #. In directories configured by the :makevar:`SNIPPET_ROOT` CMake variable.
    This always includes the zephyr repository (so
-   :zephyr_file:`zephyr/snippets` is always a source of snippets) and the
+   :zephyr_file:`snippets/` is always a source of snippets) and the
    application source directory (so :file:`<app>/snippets` is also).
 
    Additional directories can be added manually at CMake time.
@@ -98,9 +98,31 @@ The build system looks for snippets in these places:
 Processing order
 ****************
 
-The order that snippets are processed is currently not defined.
-Therefore, you should write your :file:`snippet.yml` file so that
-it is not dependent on other snippets.
+Snippets are processed in the order they are listed in the :makevar:`SNIPPET`
+variable, or in the order of the ``-S`` arguments if using west.
+
+To apply ``bar`` after ``foo``:
+
+.. code-block:: console
+
+   cmake -Sapp -Bbuild -DSNIPPET="foo;bar" [...]
+   cmake --build build
+
+The same can be achieved with west as follows:
+
+.. code-block:: console
+
+   west build -S foo -S bar [...] app
+
+When multiple snippets set the same configuration, the configuration value set
+by the last processed snippet ends up in the final configurations.
+
+For instance, if ``foo`` sets ``CONFIG_FOO=1`` and ``bar`` sets
+``CONFIG_FOO=2`` in the above example, the resulting final configuration will
+be ``CONFIG_FOO=2`` because ``bar`` is processed after ``foo``.
+
+This principle applies to both Kconfig fragments (``.conf`` files) and
+devicetree overlays (``.overlay`` files).
 
 .. _snippets-devicetree-overlays:
 

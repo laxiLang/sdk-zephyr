@@ -1,10 +1,12 @@
 common:
   arch_exclude: posix
-  tags: posix getopt
+  tags:
+    - posix
+    - getopt
+  integration_platforms:
+    - qemu_x86
 tests:
   portability.posix.getopt:
-    integration_platforms:
-      - qemu_x86
     min_flash: 64
     min_ram: 32
   portability.posix.getopt.newlib:
@@ -17,8 +19,6 @@ tests:
     extra_configs:
       - CONFIG_PICOLIBC=y
   portability.posix.getopt.logger:
-    integration_platforms:
-      - qemu_x86
     extra_configs:
       - CONFIG_LOG=y
     build_only: true

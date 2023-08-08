@@ -337,6 +337,8 @@ int bt_hci_cmd_send_sync(uint16_t opcode, struct net_buf *buf,
 		switch (status) {
 		case BT_HCI_ERR_CONN_LIMIT_EXCEEDED:
 			return -ECONNREFUSED;
+		case BT_HCI_ERR_INSUFFICIENT_RESOURCES:
+			return -ENOMEM;
 		default:
 			return -EIO;
 		}
@@ -1332,7 +1334,7 @@ void bt_hci_le_enh_conn_complete(struct bt_hci_evt_le_enh_conn_complete *evt)
 
 	if (!conn) {
 		LOG_ERR("No pending conn for peer %s", bt_addr_le_str(&evt->peer_addr));
-		bt_hci_disconnect(handle, BT_HCI_ERR_UNSPECIFIED);
+		bt_hci_disconnect(handle, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 		return;
 	}
 
@@ -1358,8 +1360,7 @@ void bt_hci_le_enh_conn_complete(struct bt_hci_evt_le_enh_conn_complete *evt)
 			if (IS_ENABLED(CONFIG_BT_PRIVACY) &&
 			    !atomic_test_bit(adv->flags, BT_ADV_USE_IDENTITY)) {
 				conn->le.resp_addr.type = BT_ADDR_LE_RANDOM;
-				if (bt_addr_cmp(&evt->local_rpa,
-						BT_ADDR_ANY) != 0) {
+				if (!bt_addr_eq(&evt->local_rpa, BT_ADDR_ANY)) {
 					bt_addr_copy(&conn->le.resp_addr.a,
 						     &evt->local_rpa);
 				} else {
@@ -1404,7 +1405,7 @@ void bt_hci_le_enh_conn_complete(struct bt_hci_evt_le_enh_conn_complete *evt)
 
 		if (IS_ENABLED(CONFIG_BT_PRIVACY)) {
 			conn->le.init_addr.type = BT_ADDR_LE_RANDOM;
-			if (bt_addr_cmp(&evt->local_rpa, BT_ADDR_ANY) != 0) {
+			if (!bt_addr_eq(&evt->local_rpa, BT_ADDR_ANY)) {
 				bt_addr_copy(&conn->le.init_addr.a,
 					     &evt->local_rpa);
 			} else {
@@ -1697,6 +1698,10 @@ static void le_phy_update_complete(struct net_buf *buf)
 
 bool bt_le_conn_params_valid(const struct bt_le_conn_param *param)
 {
+	if (IS_ENABLED(CONFIG_BT_CONN_PARAM_ANY)) {
+		return true;
+	}
+
 	/* All limits according to BT Core spec 5.0 [Vol 2, Part E, 7.8.12] */
 
 	if (param->interval_min > param->interval_max ||
@@ -4092,7 +4097,7 @@ int bt_set_name(const char *name)
 	bt_dev.name[len] = '\0';
 
 	if (IS_ENABLED(CONFIG_BT_SETTINGS)) {
-		err = settings_save_one("bt/name", bt_dev.name, len);
+		err = bt_settings_store_name(bt_dev.name, len);
 		if (err) {
 			LOG_WRN("Unable to store name");
 		}
@@ -4127,9 +4132,7 @@ int bt_set_appearance(uint16_t appearance)
 {
 	if (bt_dev.appearance != appearance) {
 		if (IS_ENABLED(CONFIG_BT_SETTINGS)) {
-			int err = settings_save_one("bt/appearance", &appearance,
-					sizeof(appearance));
-
+			int err = bt_settings_store_appearance(&appearance, sizeof(appearance));
 			if (err) {
 				LOG_ERR("Unable to save setting 'bt/appearance' (err %d).", err);
 				return err;
